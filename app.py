@@ -1,15 +1,18 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
+import os
 
 # ===============================
-# TOKEN já inserido
+# PEGA O TOKEN DO TELEGRAM DA VARIÁVEL DE AMBIENTE
 # ===============================
-TELEGRAM_TOKEN = "8333024799:AAFgIDJiHPJCeMeo2mrSLg3FddReUUlUrtM"
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+if not TELEGRAM_TOKEN:
+    raise ValueError("Por favor configure a variável de ambiente TELEGRAM_TOKEN no Render!")
 
 # Lista de produtos cadastrados
 produtos = []
 
-# Para controlar sequência de cadastro
+# Campos do cadastro
 campos_produto = ["tamanho", "cor", "categoria", "estado", "marca", "observacoes"]
 perguntas = {
     "tamanho": "Digite o tamanho (G, M, P, Infantil):",
