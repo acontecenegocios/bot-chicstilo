@@ -1,68 +1,81 @@
-import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters, CallbackQueryHandler
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 
-# Token do Telegram
-TOKEN = os.environ.get('TELEGRAM_TOKEN')
+# ===============================
+# TOKEN já inserido
+# ===============================
+TELEGRAM_TOKEN = "8333024799:AAFgIDJiHPJCeMeo2mrSLg3FddReUUlUrtM"
 
-# Dicionário para armazenar produtos temporários
-produtos_temp = {}
+# Lista de produtos cadastrados
+produtos = []
 
-# Função de start
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Olá! Envie até 5 fotos do produto para começar o cadastro.")
+# Para controlar sequência de cadastro
+campos_produto = ["tamanho", "cor", "categoria", "estado", "marca", "observacoes"]
+perguntas = {
+    "tamanho": "Digite o tamanho (G, M, P, Infantil):",
+    "cor": "Digite a cor:",
+    "categoria": "Masculino, Feminino ou Infantil?",
+    "estado": "Qual o estado da peça?",
+    "marca": "Qual a marca?",
+    "observacoes": "Alguma observação sobre o produto?"
+}
 
-# Função para receber fotos
-async def fotos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    if user_id not in produtos_temp:
-        produtos_temp[user_id] = {"fotos": [], "info": {}}
-    produtos_temp[user_id]["fotos"].append(update.message.photo[-1].file_id)
-    
-    if len(produtos_temp[user_id]["fotos"]) < 5:
-        await update.message.reply_text(f"Foto recebida! Envie mais {5 - len(produtos_temp[user_id]['fotos'])} fotos.")
-    else:
-        await update.message.reply_text("Fotos recebidas! Agora me informe o tamanho (G, M, P, etc).")
+def start(update: Update, context: CallbackContext):
+    update.message.reply_text("Olá! Envie até 5 fotos do produto para começar o cadastro.")
 
-# Função para receber informações textuais
-async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    if user_id not in produtos_temp or len(produtos_temp[user_id]["fotos"]) < 5:
-        await update.message.reply_text("Por favor, envie primeiro as 5 fotos do produto.")
+def fotos_handler(update: Update, context: CallbackContext):
+    fotos = update.message.photo
+    if not fotos:
+        update.message.reply_text("Envie uma foto válida.")
         return
-    
-    info = produtos_temp[user_id]["info"]
-    if "tamanho" not in info:
-        info["tamanho"] = update.message.text.upper()
-        await update.message.reply_text("Qual a cor da peça?")
-    elif "cor" not in info:
-        info["cor"] = update.message.text
-        await update.message.reply_text("Masculino, Feminino ou Infantil?")
-    elif "publico" not in info:
-        info["publico"] = update.message.text
-        await update.message.reply_text("Qual o estado da peça?")
-    elif "estado" not in info:
-        info["estado"] = update.message.text
-        await update.message.reply_text("Qual a marca?")
-    elif "marca" not in info:
-        info["marca"] = update.message.text
-        await update.message.reply_text("Observações adicionais?")
-    elif "observacoes" not in info:
-        info["observacoes"] = update.message.text
-        resumo = f"Tamanho: {info['tamanho']}\nCor: {info['cor']}\nPúblico: {info['publico']}\nEstado: {info['estado']}\nMarca: {info['marca']}\nObservações: {info['observacoes']}"
-        await update.message.reply_text(f"Confirme os dados do produto:\n{resumo}\n\nSe estiver ok, responda 'OK' para subir ao catálogo.")
-    elif update.message.text.upper() == "OK":
-        await update.message.reply_text("Produto cadastrado com sucesso! 🎉")
-        # Aqui você pode adicionar lógica de salvar em banco ou site
-        produtos_temp.pop(user_id)
+    context.user_data.setdefault("fotos", []).append(fotos[-1].file_id)
+    update.message.reply_text(f"Foto recebida! Total de fotos enviadas: {len(context.user_data['fotos'])}")
 
-# Main
+    if len(context.user_data["fotos"]) == 5:
+        context.user_data["cadastro"] = {}
+        context.user_data["campo_atual"] = 0
+        update.message.reply_text(perguntas[campos_produto[0]])
+
+def mensagem_handler(update: Update, context: CallbackContext):
+    if "campo_atual" not in context.user_data:
+        update.message.reply_text("Envie primeiro as 5 fotos do produto.")
+        return
+
+    campo = campos_produto[context.user_data["campo_atual"]]
+    context.user_data["cadastro"][campo] = update.message.text
+    context.user_data["campo_atual"] += 1
+
+    if context.user_data["campo_atual"] < len(campos_produto):
+        proximo_campo = campos_produto[context.user_data["campo_atual"]]
+        update.message.reply_text(perguntas[proximo_campo])
+    else:
+        # Cadastro completo, montar descritivo
+        desc = f"✅ Produto cadastrado:\n"
+        for c in campos_produto:
+            desc += f"{c.capitalize()}: {context.user_data['cadastro'][c]}\n"
+        desc += f"Fotos: {len(context.user_data['fotos'])} enviadas"
+
+        # Botões Disponível / Vendido
+        teclado = [
+            [InlineKeyboardButton("Disponível ✅", callback_data="disponivel"),
+             InlineKeyboardButton("Vendido ❌", callback_data="vendido")]
+        ]
+        markup = InlineKeyboardMarkup(teclado)
+        update.message.reply_text(desc, reply_markup=markup)
+
+        # Limpar dados para próximo produto
+        context.user_data.clear()
+
+def main():
+    updater = Updater(TELEGRAM_TOKEN)
+    dp = updater.dispatcher
+
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(MessageHandler(Filters.photo, fotos_handler))
+    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, mensagem_handler))
+
+    updater.start_polling()
+    updater.idle()
+
 if __name__ == '__main__':
-    app = ApplicationBuilder().token(TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.PHOTO, fotos))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, info))
-
-    print("Bot rodando...")
-    app.run_polling()
+    main()
